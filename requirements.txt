@@ -1,6 +1,3 @@
-fastapi
-uvicorn
+streamlit
 openai
 python-dotenv
-requests
-streamlit
