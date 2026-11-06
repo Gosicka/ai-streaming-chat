@@ -1,3 +1,5 @@
+"""基于 Streamlit 的 DeepSeek 流式聊天应用。"""
+
 import os
 
 import streamlit as st
@@ -9,9 +11,28 @@ load_dotenv()
 MAX_INPUT_CHARS = 1000
 MAX_OUTPUT_TOKENS = 1024
 SESSION_CHAR_LIMIT = 30000
+MODEL_NAME = "deepseek-chat"
+API_BASE_URL = "https://api.deepseek.com"
 
-st.set_page_config(page_title="Chat")
-st.title("Chat")
+
+def stream_reply(client: OpenAI, messages: list[dict[str, str]]):
+    """逐块返回模型增量文本，供界面流式渲染。"""
+    stream = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=messages,
+        stream=True,
+        max_tokens=MAX_OUTPUT_TOKENS,
+    )
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
+
+
+st.set_page_config(page_title="AI 流式聊天")
+st.title("AI 流式聊天")
 
 api_key = os.environ.get("DEEPSEEK_API_KEY")
 
@@ -48,32 +69,15 @@ prompt = st.chat_input(
 if over_limit or not api_key:
     st.stop()
 
+client = OpenAI(api_key=api_key, base_url=API_BASE_URL)
+
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://api.deepseek.com",
-    )
-
-    def iter_chunks(message: str):
-        stream = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[{"role": "user", "content": message}],
-            stream=True,
-            max_tokens=MAX_OUTPUT_TOKENS,
-        )
-        for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
-
     with st.chat_message("assistant"):
-        reply = st.write_stream(iter_chunks(prompt))
+        reply = st.write_stream(stream_reply(client, st.session_state.messages))
     reply = reply or ""
     st.session_state.messages.append({"role": "assistant", "content": reply})
     st.session_state.total_chars_used += len(prompt) + len(reply)
